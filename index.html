@@ -32,8 +32,16 @@ let state = "title", doorOpen = 0, openedAt = 0, limit = Infinity, round = 0, be
 
 // ---------- audio ----------
 let ac;
-function tone(freq, dur, type = "sine", start = 0, vol = 0.2, endFreq) {
+// iOS Safari only allows audio to start from touchend/click/keydown, so unlock on those gestures.
+function unlockAudio() {
   if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+  if (ac.state === "running") return;
+  ac.resume();
+  const s = ac.createBufferSource(); s.buffer = ac.createBuffer(1, 1, 22050); s.connect(ac.destination); s.start(0);
+}
+["touchend", "click", "keydown"].forEach(t => document.addEventListener(t, unlockAudio, { passive: true }));
+function tone(freq, dur, type = "sine", start = 0, vol = 0.2, endFreq) {
+  unlockAudio();
   const o = ac.createOscillator(), v = ac.createGain(), t = ac.currentTime + start;
   o.type = type; o.frequency.setValueAtTime(freq, t);
   if (endFreq) o.frequency.exponentialRampToValueAtTime(endFreq, t + dur);
@@ -171,6 +179,7 @@ document.addEventListener("keydown", e => {
 // pointerdown fires before click, so taps register without the mobile click delay.
 cv.addEventListener("pointerdown", e => {
   e.preventDefault();
+  unlockAudio();
   if (state === "title") start(); else shoot(e);
 });
 draw(); text("Tap or press SPACE to start");
