@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Go Fam React - Global High Scores</title>
+<style>
+  body{margin:0;padding:20px;background:#111;color:#eee;font-family:monospace;display:flex;flex-direction:column;align-items:center}
+  table{border-collapse:collapse;min-width:320px}
+  th,td{padding:6px 14px;border-bottom:1px solid #333;text-align:left}
+  a{color:#8cf}
+</style>
+</head>
+<body>
+<h2>Global High Scores - Monthly</h2>
+<p>Fastest reaction times in nanoseconds (lower is faster). Resets on the 1st of each month.</p>
+<table><thead><tr><th>#</th><th>Name</th><th>Time</th></tr></thead><tbody id="b"></tbody></table>
+<p id="msg"></p>
+<p><a href="index.html">Play the game</a></p>
+<script>
+// Must match HIGHSCORE_ID and MAX_SCORE in index.html.
+const HIGHSCORE_ID = "4a3003d2-b605-41b7-87ad-53f64fe98bc1", API = "https://highscore.sasagu.com/api/v1", MAX_SCORE = 2000000000;
+(async () => {
+  const msg = document.getElementById("msg"), body = document.getElementById("b");
+  try {
+    const d = await (await fetch(`${API}/scores/${HIGHSCORE_ID}`)).json();
+    if (!d.success) throw new Error();
+    const list = d.scores.map(s => ({ name: s.name, time: MAX_SCORE - s.score })).sort((a, b) => a.time - b.time);
+    list.forEach((s, i) => {
+      const tr = body.insertRow();
+      [i + 1, s.name, `${s.time.toLocaleString()} ns`].forEach(v => { tr.insertCell().textContent = v; });
+    });
+    if (!list.length) msg.textContent = "No scores yet.";
+  } catch (e) { msg.textContent = "Could not load scores."; }
+})();
+</script>
+</body>
+</html>

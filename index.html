@@ -17,10 +17,13 @@
 <canvas id="c" width="640" height="400"></canvas>
 <div id="info">Press SPACE to start. When the door opens, press SPACE to shoot the monster!</div>
 <div id="hs"></div>
+<div><a href="highscores.html" style="color:#8cf">Global high scores</a></div>
 <script>
-// Online high scores: set this to a Firebase Realtime Database URL (e.g. "https://YOUR-APP-default-rtdb.firebaseio.com")
-// with rules allowing read/write on "scores". If empty, scores are kept in this browser only.
-const SCORES_URL = "";
+// Global monthly high scores via https://highscore.sasagu.com/. Times are in nanoseconds (lower = faster);
+// the API ranks higher scores first, so the stored score is MAX_SCORE - ns (kept within int32).
+const HIGHSCORE_ID = "4a3003d2-b605-41b7-87ad-53f64fe98bc1";
+const API = "https://highscore.sasagu.com/api/v1", MAX_SCORE = 2000000000;
+const fromApi = l => (l || []).map(s => ({ name: s.name, time: MAX_SCORE - s.score })).sort((a, b) => a.time - b.time);
 
 const cv = document.getElementById("c"), g = cv.getContext("2d");
 const info = document.getElementById("info"), hs = document.getElementById("hs");
@@ -99,12 +102,12 @@ function nextRound() {
     }, 1200 + Math.random() * 1500);
   }, 600);
 }
-function shoot() {
+function shoot(ev) {
   if (state === "waiting") { // too early: restart the round
     clearTimeout(timer); round--; info.textContent = "Too early! Wait for the door..."; setTimeout(nextRound, 800); state = "busy"; return;
   }
   if (state !== "open") return;
-  const rt = performance.now() - openedAt;
+  const rt = Math.max(0, (ev && ev.timeStamp || performance.now()) - openedAt); // event time = input receipt, not handler run
   clearTimeout(deadline); state = "busy"; shotSnd(); setTimeout(success, 150);
   best = Math.min(best, rt);
   limit = isFinite(limit) ? limit / 2 : rt / 2;
@@ -120,25 +123,28 @@ function lose() {
 
 // ---------- high scores ----------
 async function loadScores() {
-  if (SCORES_URL) {
+  if (HIGHSCORE_ID) {
     try {
-      const r = await fetch(SCORES_URL.replace(/\/$/, "") + "/scores.json?orderBy=%22time%22&limitToFirst=10");
-      const d = await r.json() || {};
-      return Object.values(d).sort((a, b) => a.time - b.time).slice(0, 10);
+      const d = await (await fetch(`${API}/scores/${HIGHSCORE_ID}`)).json();
+      if (d.success) return fromApi(d.scores);
     } catch (e) { /* fall through to local */ }
   }
-  return (JSON.parse(localStorage.getItem("scores") || "[]")).sort((a, b) => a.time - b.time).slice(0, 10);
+  return (JSON.parse(localStorage.getItem("scores_ns") || "[]")).sort((a, b) => a.time - b.time).slice(0, 10);
 }
 async function saveScore(s) {
-  if (SCORES_URL) {
-    try { await fetch(SCORES_URL.replace(/\/$/, "") + "/scores.json", { method: "POST", body: JSON.stringify(s) }); return; } catch (e) {}
+  if (HIGHSCORE_ID) {
+    try {
+      const r = await fetch(`${API}/add-score`, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ highscore_id: HIGHSCORE_ID, name: s.name, score: Math.max(0, MAX_SCORE - s.time) }) });
+      if ((await r.json()).success) return;
+    } catch (e) {}
   }
-  const l = JSON.parse(localStorage.getItem("scores") || "[]"); l.push(s); localStorage.setItem("scores", JSON.stringify(l));
+  const l = JSON.parse(localStorage.getItem("scores_ns") || "[]"); l.push(s); localStorage.setItem("scores_ns", JSON.stringify(l));
 }
 function showScores(list) {
   hs.innerHTML = "<h3>High Scores</h3>";
   const ol = document.createElement("ol");
-  list.forEach(s => { const li = document.createElement("li"); li.textContent = `${s.name} - ${Number(s.time).toFixed(0)} ms`; ol.appendChild(li); });
+  list.forEach(s => { const li = document.createElement("li"); li.textContent = `${s.name} - ${Number(s.time).toLocaleString()} ns`; ol.appendChild(li); });
   hs.appendChild(ol);
   const b = document.createElement("button"); b.textContent = "Play again"; b.onclick = start; hs.appendChild(b);
   state = "title";
@@ -149,7 +155,7 @@ function askName() {
   const submit = async () => {
     const name = n.value.trim().slice(0, 20) || "Anonymous";
     hs.textContent = "Saving...";
-    await saveScore({ name, time: Math.round(best) });
+    await saveScore({ name, time: Math.round(best * 1e6) });
     showScores(await loadScores());
   };
   document.getElementById("ok").onclick = submit;
@@ -160,7 +166,7 @@ document.addEventListener("keydown", e => {
   if (e.code !== "Space" || e.repeat) return;
   if (e.target.tagName === "INPUT" || e.target.tagName === "BUTTON") return;
   e.preventDefault();
-  if (state === "title") start(); else shoot();
+  if (state === "title") start(); else shoot(e);
 });
 draw(); text("Press SPACE to start");
 loadScores().then(l => l.length && showScores(l)).catch(() => {});
