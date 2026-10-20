@@ -6,7 +6,7 @@
 <title>Go Fam React - Reaction Time Game</title>
 <style>
   body{margin:0;background:#111;color:#eee;font-family:monospace;display:flex;flex-direction:column;align-items:center}
-  canvas{max-width:100vw;background:#000;margin-top:10px;border:2px solid #444}
+  canvas{max-width:100vw;background:#000;margin-top:10px;border:2px solid #444;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
   #info{margin:8px;text-align:center}
   #hs{margin:8px;min-width:300px}
   #hs ol{text-align:left}
@@ -15,7 +15,7 @@
 </head>
 <body>
 <canvas id="c" width="640" height="400"></canvas>
-<div id="info">Press SPACE to start. When the door opens, press SPACE to shoot the monster!</div>
+<div id="info">Tap the door or press SPACE to start. When the door opens, tap the door or press SPACE to shoot the monster!</div>
 <div id="hs"></div>
 <div><a href="highscores.html" style="color:#8cf">Global high scores</a></div>
 <script>
@@ -96,7 +96,7 @@ function nextRound() {
       state = "opening";
       animate(0, 1, 250, () => {
         state = "open"; openedAt = performance.now();
-        info.textContent = "SHOOT! (SPACE)";
+        info.textContent = "SHOOT! (tap or SPACE)";
         if (isFinite(limit)) deadline = setTimeout(lose, limit);
       });
     }, 1200 + Math.random() * 1500);
@@ -168,7 +168,12 @@ document.addEventListener("keydown", e => {
   e.preventDefault();
   if (state === "title") start(); else shoot(e);
 });
-draw(); text("Press SPACE to start");
+// pointerdown fires before click, so taps register without the mobile click delay.
+cv.addEventListener("pointerdown", e => {
+  e.preventDefault();
+  if (state === "title") start(); else shoot(e);
+});
+draw(); text("Tap or press SPACE to start");
 loadScores().then(l => l.length && showScores(l)).catch(() => {});
 </script>
 </body>
