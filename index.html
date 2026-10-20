@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Go Fam React - Reaction Time Game</title>
+<style>
+  body{margin:0;background:#111;color:#eee;font-family:monospace;display:flex;flex-direction:column;align-items:center}
+  canvas{max-width:100vw;background:#000;margin-top:10px;border:2px solid #444}
+  #info{margin:8px;text-align:center}
+  #hs{margin:8px;min-width:300px}
+  #hs ol{text-align:left}
+  input,button{font:inherit;padding:6px}
+</style>
+</head>
+<body>
+<canvas id="c" width="640" height="400"></canvas>
+<div id="info">Press SPACE to start. When the door opens, press SPACE to shoot the monster!</div>
+<div id="hs"></div>
+<script>
+// Online high scores: set this to a Firebase Realtime Database URL (e.g. "https://YOUR-APP-default-rtdb.firebaseio.com")
+// with rules allowing read/write on "scores". If empty, scores are kept in this browser only.
+const SCORES_URL = "";
+
+const cv = document.getElementById("c"), g = cv.getContext("2d");
+const info = document.getElementById("info"), hs = document.getElementById("hs");
+let state = "title", doorOpen = 0, openedAt = 0, limit = Infinity, round = 0, best = Infinity,
+    timer = null, deadline = null, anim = null, lastTime = 0;
+
+// ---------- audio ----------
+let ac;
+function tone(freq, dur, type = "sine", start = 0, vol = 0.2, endFreq) {
+  if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+  const o = ac.createOscillator(), v = ac.createGain(), t = ac.currentTime + start;
+  o.type = type; o.frequency.setValueAtTime(freq, t);
+  if (endFreq) o.frequency.exponentialRampToValueAtTime(endFreq, t + dur);
+  v.gain.setValueAtTime(vol, t); v.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(v); v.connect(ac.destination); o.start(t); o.stop(t + dur);
+}
+const dramatic = () => { tone(55, 1.2, "sawtooth", 0, 0.3); tone(58, 1.2, "sawtooth", 0, 0.3); tone(220, 0.6, "square", 0.8, 0.15, 110); };
+const success = () => { tone(660, 0.12, "triangle"); tone(880, 0.2, "triangle", 0.12); };
+const shotSnd = () => tone(900, 0.15, "square", 0, 0.2, 100);
+const scream = () => { tone(1200, 0.8, "sawtooth", 0, 0.4, 200); tone(90, 0.8, "square", 0, 0.4); };
+
+// ---------- drawing ----------
+function draw(blood) {
+  g.fillStyle = "#5a3d2b"; g.fillRect(0, 0, 640, 400);           // wall
+  g.fillStyle = "#3a2a1e"; g.fillRect(0, 340, 640, 60);           // floor
+  const x = 220, y = 60, w = 200, h = 280;
+  g.fillStyle = "#1a0f2e"; g.fillRect(x, y, w, h);                // dark outside
+  if (doorOpen > 0.6) drawMonster(x + w / 2, y + h);
+  g.fillStyle = "#8b5a2b";                                        // door slides (hinged look)
+  g.fillRect(x, y, w * (1 - doorOpen) + 8 * doorOpen, h);
+  g.fillStyle = "#c9a227"; g.beginPath();
+  g.arc(x + (w * (1 - doorOpen)) - 15, y + h / 2, 7, 0, 7); g.fill();
+  g.strokeStyle = "#2b1a0c"; g.lineWidth = 8; g.strokeRect(x - 4, y - 4, w + 8, h + 8);
+  if (blood) drawBlood();
+}
+function drawMonster(cx, by) {
+  g.fillStyle = "#2e8b2e"; g.fillRect(cx - 50, by - 180, 100, 180);
+  g.beginPath(); g.arc(cx, by - 200, 55, 0, 7); g.fill();
+  g.fillStyle = "#ff2020"; g.beginPath(); g.arc(cx - 20, by - 210, 12, 0, 7); g.arc(cx + 20, by - 210, 12, 0, 7); g.fill();
+  g.fillStyle = "#fff"; g.fillRect(cx - 30, by - 180, 60, 14);
+  for (let i = 0; i < 6; i++) { g.beginPath(); g.moveTo(cx - 30 + i * 10, by - 180); g.lineTo(cx - 25 + i * 10, by - 160); g.lineTo(cx - 20 + i * 10, by - 180); g.fill(); }
+  g.fillStyle = "#e0e000"; g.beginPath(); g.moveTo(cx - 45, by - 245); g.lineTo(cx - 30, by - 275); g.lineTo(cx - 20, by - 245);
+  g.moveTo(cx + 45, by - 245); g.lineTo(cx + 30, by - 275); g.lineTo(cx + 20, by - 245); g.fill();
+}
+function drawBlood() {
+  g.fillStyle = "rgba(150,0,0,.85)"; g.fillRect(0, 0, 640, 400);
+  g.fillStyle = "#a00000";
+  for (let i = 0; i < 40; i++) { const x = (i * 97) % 640; g.fillRect(x, 0, 14 + (i % 4) * 6, 120 + (i * 53) % 280); g.beginPath(); g.arc(x + 10, 120 + (i * 53) % 280, 14, 0, 7); g.fill(); }
+  g.fillStyle = "#000"; g.font = "bold 56px monospace"; g.textAlign = "center"; g.fillText("YOU DIED", 320, 210);
+}
+function text(t, y = 380) { g.fillStyle = "#fff"; g.font = "18px monospace"; g.textAlign = "center"; g.fillText(t, 320, y); }
+function animate(from, to, ms, done) {
+  const s = performance.now();
+  (function f(n) {
+    const p = Math.min(1, (n - s) / ms); doorOpen = from + (to - from) * p; draw();
+    if (p < 1) anim = requestAnimationFrame(f); else if (done) done();
+  })(s);
+}
+
+// ---------- game flow ----------
+function start() {
+  round = 0; best = Infinity; limit = Infinity; hs.innerHTML = ""; nextRound();
+}
+function nextRound() {
+  round++; state = "waiting"; doorOpen = 0; draw();
+  info.textContent = `Round ${round}` + (isFinite(limit) ? ` - react within ${limit.toFixed(0)} ms` : "") + " - get ready...";
+  timer = setTimeout(() => {
+    dramatic();
+    timer = setTimeout(() => {
+      state = "opening";
+      animate(0, 1, 250, () => {
+        state = "open"; openedAt = performance.now();
+        info.textContent = "SHOOT! (SPACE)";
+        if (isFinite(limit)) deadline = setTimeout(lose, limit);
+      });
+    }, 1200 + Math.random() * 1500);
+  }, 600);
+}
+function shoot() {
+  if (state === "waiting") { // too early: restart the round
+    clearTimeout(timer); round--; info.textContent = "Too early! Wait for the door..."; setTimeout(nextRound, 800); state = "busy"; return;
+  }
+  if (state !== "open") return;
+  const rt = performance.now() - openedAt;
+  clearTimeout(deadline); state = "busy"; shotSnd(); setTimeout(success, 150);
+  best = Math.min(best, rt);
+  limit = isFinite(limit) ? limit / 2 : rt / 2;
+  info.textContent = `Hit! ${rt.toFixed(0)} ms. Next round limit: ${limit.toFixed(0)} ms`;
+  text(`${rt.toFixed(0)} ms`, 30);
+  setTimeout(() => animate(1, 0, 250, () => setTimeout(nextRound, 700)), 500);
+}
+function lose() {
+  state = "over"; scream(); draw(true);
+  info.textContent = `Game over after ${round - 1} successful shot(s). Best reaction: ${best.toFixed(0)} ms`;
+  setTimeout(askName, 1200);
+}
+
+// ---------- high scores ----------
+async function loadScores() {
+  if (SCORES_URL) {
+    try {
+      const r = await fetch(SCORES_URL.replace(/\/$/, "") + "/scores.json?orderBy=%22time%22&limitToFirst=10");
+      const d = await r.json() || {};
+      return Object.values(d).sort((a, b) => a.time - b.time).slice(0, 10);
+    } catch (e) { /* fall through to local */ }
+  }
+  return (JSON.parse(localStorage.getItem("scores") || "[]")).sort((a, b) => a.time - b.time).slice(0, 10);
+}
+async function saveScore(s) {
+  if (SCORES_URL) {
+    try { await fetch(SCORES_URL.replace(/\/$/, "") + "/scores.json", { method: "POST", body: JSON.stringify(s) }); return; } catch (e) {}
+  }
+  const l = JSON.parse(localStorage.getItem("scores") || "[]"); l.push(s); localStorage.setItem("scores", JSON.stringify(l));
+}
+function showScores(list) {
+  hs.innerHTML = "<h3>High Scores</h3>";
+  const ol = document.createElement("ol");
+  list.forEach(s => { const li = document.createElement("li"); li.textContent = `${s.name} - ${Number(s.time).toFixed(0)} ms`; ol.appendChild(li); });
+  hs.appendChild(ol);
+  const b = document.createElement("button"); b.textContent = "Play again"; b.onclick = start; hs.appendChild(b);
+  state = "title";
+}
+function askName() {
+  hs.innerHTML = "<label>Your name: <input id='n' maxlength='20'></label> <button id='ok'>Save</button>";
+  const n = document.getElementById("n"); n.focus();
+  const submit = async () => {
+    const name = n.value.trim().slice(0, 20) || "Anonymous";
+    hs.textContent = "Saving...";
+    await saveScore({ name, time: Math.round(best) });
+    showScores(await loadScores());
+  };
+  document.getElementById("ok").onclick = submit;
+  n.onkeydown = e => { e.stopPropagation(); if (e.key === "Enter") submit(); };
+}
+
+document.addEventListener("keydown", e => {
+  if (e.code !== "Space" || e.repeat) return;
+  if (e.target.tagName === "INPUT" || e.target.tagName === "BUTTON") return;
+  e.preventDefault();
+  if (state === "title") start(); else shoot();
+});
+draw(); text("Press SPACE to start");
+loadScores().then(l => l.length && showScores(l)).catch(() => {});
+</script>
+</body>
+</html>
