@@ -125,7 +125,7 @@ function shoot(ev) {
   }
   clearTimeout(deadline); state = "busy";
   best = Math.min(best, rt);
-  limit = rt < 500 ? rt - 50 : isFinite(limit) ? limit / 2 : rt / 2; // fast times tighten by 50 ms so play lasts longer
+  limit = rt < 500 ? rt : isFinite(limit) ? limit / 2 : rt / 2;
   info.textContent = `Hit! ${rt.toFixed(0)} ms. Next round limit: ${limit.toFixed(0)} ms`;
   text(`${rt.toFixed(0)} ms`, 30);
   shotSnd(); setTimeout(success, 150);
