@@ -84,6 +84,7 @@ function drawBlood() {
 }
 function text(t, y = 380) { g.fillStyle = "#fff"; g.font = "18px monospace"; g.textAlign = "center"; g.fillText(t, 320, y); }
 function animate(from, to, ms, done) {
+  cancelAnimationFrame(anim); // a fast shot can arrive while the door is still opening
   const s = performance.now();
   (function f(n) {
     const p = Math.min(1, (n - s) / ms); doorOpen = from + (to - from) * p; draw();
@@ -101,12 +102,10 @@ function nextRound() {
   timer = setTimeout(() => {
     dramatic();
     timer = setTimeout(() => {
-      state = "opening";
-      animate(0, 1, 250, () => {
-        state = "open"; openedAt = performance.now();
-        info.textContent = "SHOOT! (tap or SPACE)";
-        if (isFinite(limit)) deadline = setTimeout(lose, limit);
-      });
+      state = "open"; openedAt = performance.now();
+      info.textContent = "SHOOT! (tap or SPACE)";
+      if (isFinite(limit)) deadline = setTimeout(lose, limit);
+      animate(0, 1, 250);
     }, 1200 + Math.random() * 1500);
   }, 600);
 }
@@ -124,7 +123,7 @@ function shoot(ev) {
   limit = isFinite(limit) ? limit / 2 : rt / 2;
   info.textContent = `Hit! ${rt.toFixed(0)} ms. Next round limit: ${limit.toFixed(0)} ms`;
   text(`${rt.toFixed(0)} ms`, 30);
-  setTimeout(() => animate(1, 0, 250, () => setTimeout(nextRound, 700)), 500);
+  setTimeout(() => animate(doorOpen, 0, 250, () => setTimeout(nextRound, 700)), 500);
 }
 function lose() {
   state = "over"; scream(); draw(true);
