@@ -111,11 +111,14 @@ function nextRound() {
   }, 600);
 }
 function shoot(ev) {
-  if (state === "waiting") { // too early: restart the round
-    clearTimeout(timer); round--; info.textContent = "Too early! Wait for the door..."; setTimeout(nextRound, 800); state = "busy"; return;
+  const t = ev && ev.timeStamp || performance.now(); // event time = input receipt, not handler run
+  // Input stamped before the door finished opening was queued early, so it is a false start too.
+  if (state === "waiting" || (state === "open" && t <= openedAt)) { // too early: restart the round
+    clearTimeout(timer); clearTimeout(deadline); round--; info.textContent = "Too early! Wait for the door...";
+    setTimeout(nextRound, 800); state = "busy"; return;
   }
   if (state !== "open") return;
-  const rt = Math.max(0, (ev && ev.timeStamp || performance.now()) - openedAt); // event time = input receipt, not handler run
+  const rt = t - openedAt;
   clearTimeout(deadline); state = "busy"; shotSnd(); setTimeout(success, 150);
   best = Math.min(best, rt);
   limit = isFinite(limit) ? limit / 2 : rt / 2;
