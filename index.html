@@ -22,7 +22,7 @@
 // Global monthly high scores via https://highscore.sasagu.com/. Times are in nanoseconds (lower = faster);
 // the API ranks higher scores first, so the stored score is MAX_SCORE - ns (kept within int32).
 const HIGHSCORE_ID = "4a3003d2-b605-41b7-87ad-53f64fe98bc1";
-const API = "https://highscore.sasagu.com/api/v1", MAX_SCORE = 2000000000;
+const API = "https://highscore.sasagu.com/api/v1", MAX_SCORE = 2000000000, MIN_REACTION_MS = 100;
 const fromApi = l => (l || []).map(s => ({ name: s.name, time: MAX_SCORE - s.score })).sort((a, b) => a.time - b.time);
 
 const cv = document.getElementById("c"), g = cv.getContext("2d");
@@ -110,7 +110,8 @@ function nextRound() {
   }, 600);
 }
 function shoot(ev) {
-  const t = ev && ev.timeStamp || performance.now(); // event time = input receipt, not handler run
+  const now = performance.now(); // event time = input receipt, not handler run; old Safari uses an epoch timeStamp
+  const t = ev && Math.abs(ev.timeStamp - now) < 5000 ? ev.timeStamp : now;
   // Input stamped before the door finished opening was queued early, so it is a false start too.
   if (state === "waiting" || (state === "open" && t <= openedAt)) { // too early: restart the round
     clearTimeout(timer); clearTimeout(deadline); round--; info.textContent = "Too early! Wait for the door...";
@@ -118,11 +119,16 @@ function shoot(ev) {
   }
   if (state !== "open") return;
   const rt = t - openedAt;
-  clearTimeout(deadline); state = "busy"; shotSnd(); setTimeout(success, 150);
+  if (rt < MIN_REACTION_MS) { // faster than humanly possible = anticipation, so it can't be recorded
+    clearTimeout(timer); clearTimeout(deadline); round--; info.textContent = "Too early! Wait for the door...";
+    setTimeout(nextRound, 800); state = "busy"; return;
+  }
+  clearTimeout(deadline); state = "busy";
   best = Math.min(best, rt);
   limit = isFinite(limit) ? limit / 2 : rt / 2;
   info.textContent = `Hit! ${rt.toFixed(0)} ms. Next round limit: ${limit.toFixed(0)} ms`;
   text(`${rt.toFixed(0)} ms`, 30);
+  shotSnd(); setTimeout(success, 150);
   setTimeout(() => animate(doorOpen, 0, 250, () => setTimeout(nextRound, 700)), 500);
 }
 function lose() {
